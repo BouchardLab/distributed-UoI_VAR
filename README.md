@@ -17,8 +17,9 @@ API and Libraries: MPI, HDF5-parallel, eigen3, gsl
 ## Usage
 
 1. run: srun -n 2 -c 4 --cpu_bind=cores -u ./uoi_var ./simdata4016.csv 7 1 3 5 5 output.h5 lasso.h5
+2. The sample dataset  provided is a 102X40 toy example in simdata4016.csv.  
 
-TODO: Generate output files and write results. Caluculate timing and report them!
+TODO: Generate output files and write results. Caluculate timing and report them. Substitute CSV loading into HDF5 data loading module when the dataset is ready.
 
 ## Contributing
 
