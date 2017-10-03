@@ -1,5 +1,5 @@
 TARGETS=uoi_var
-OBJS=uoi_var.o bins.o matrix-operations.o lasso.o var-distribute-data.o var_kron.o
+OBJS=uoi_var.o bins.o matrix-operations.o lasso.o var-distribute-data.o var_kron.o manage-data.o
 
 CXX=CC
 CXXFLAGS=-Wall -g  -O3 -qopenmp -mkl -std=c++11  -fp-model fast=2 -xMIC-AVX512 $(EIGEN3)

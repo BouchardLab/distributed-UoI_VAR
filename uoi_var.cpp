@@ -11,7 +11,7 @@
 #include "bins.h"
 #define EIGEN_USE_MKL_ALL
 #include <eigen3/Eigen/Dense>
-//#include "manage-data.h"
+#include "manage-data.h"
 #include "matrix-operations.h"
 //#include "model_estimate.h"
 //#include "model_selection.h"
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
   INPUTFILE = argv[1];
   OUTPUTFILE = argv[7];
   OUTPUTFILE1 = argv[8];
-  char *dataset_x = "/data/data";
+  char *dataset_simdata = "/data/sim_data";
   //char *dataset_y = "/data/y";
   char buf[20];
   int L, N, p, D, nlamb, B1, B2, bgdopt=1; 
@@ -88,6 +88,8 @@ int main(int argc, char** argv) {
         	fflush(stdout);
         	MPI_Abort(MPI_COMM_WORLD, 1);
    	} else {
+		N = get_rows(INPUTFILE, dataset_simdata);
+      		p = get_cols(INPUTFILE,dataset_simdata);	
       		L = atoi(argv[2]);
       		D = atoi(argv[3]); 
 		nlamb = atoi(argv[4]);
@@ -95,9 +97,9 @@ int main(int argc, char** argv) {
   		B2 = atoi(argv[6]); 
    	}	
 
-  	inputdata = load_csv<MatrixXf>(INPUTFILE); /* substitue this with hdf5 reads parallel reads*/ 
+  	//inputdata = load_csv<MatrixXf>(INPUTFILE); /* substitue this with hdf5 reads parallel reads*/ 
 
-	 ofstream myfile121 ("data/Input.dat");
+	/*ofstream myfile121 ("data/Input.dat");
         if (myfile121.is_open())
         {
                 myfile121 << inputdata;
@@ -107,7 +109,7 @@ int main(int argc, char** argv) {
 	//MPI_Abort(MPI_COMM_WORLD, 2);
 
   	N = inputdata.rows();
-  	p = inputdata.cols(); 
+  	p = inputdata.cols();*/ 
   
   	if ( nprocs > N ) {
      		printf("must have nprocs < nrows \n");
@@ -141,10 +143,24 @@ int main(int argc, char** argv) {
    */
 
   int qrows = bin_size_1D(rank_g, N, nprocs_g);
-  MatrixXf data(qrows, p);
+  //MatrixXf data(qrows, p);
 
+  double read_t = MPI_Wtime();
 
-  {
+  size_t sizeX = (size_t) qrows * (size_t) p * sizeof(float);
+  float *data_f; 
+  data_f = (float *) malloc(sizeX);
+  get_matrix (qrows, p, N, MPI_COMM_WORLD, rank, data_f, dataset_simdata, INPUTFILE);
+
+  //Map<Matrix<float, Dynamic, Dynamic, RowMajor> > data(_temp, qrows, p); 
+  //free(_temp); 
+
+  double end_read = MPI_Wtime() - read_t;
+  if (rank == 0) {
+    cout << "Read time: " << end_read << " (s)\n"; 
+  }
+
+  /*{
     int sendcounts[nprocs_g];
     int displs[nprocs_g];
 
@@ -155,21 +171,21 @@ int main(int argc, char** argv) {
        sendcounts[i] = bin_size_1D(i, N, nprocs_g) * p;
     } 
     MPI_Scatterv(inputdata.data(), sendcounts, displs, MPI_FLOAT, data.data(), qrows*p, MPI_FLOAT, 0, comm_g); 
-  }
+  }*/
 
   int size_s = (N-L+2) * L; 
   //int q_rows = bin_size_1D(rank_g, p, nprocs_g);
-  
-  float *data_f; 
-  data_f = (float *)malloc(data.rows() * data.cols()* sizeof(float));
-  Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(data_f, data.rows(), data.cols()) = data;  
+ 
+  //float *data_f; 
+  //data_f = (float *)malloc(data.rows() * data.cols()* sizeof(float));
+  //Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(data_f, data.rows(), data.cols()) = data;  
 
 
   if (rank == 0) {
 	ofstream myfile1 ("data/data_f.dat");
         if (myfile1.is_open())
         {
-                myfile1 << data; 
+                myfile1 << data_f; 
                 myfile1.close();
         }
   }
@@ -187,14 +203,16 @@ int main(int argc, char** argv) {
 
   double allred_1, allred_2;
 
+  double start_rand, end_rand, start_Zmx, end_Zmx, start_kron, end_kron; 
   for(int k=0; k<B1; k++) {  
 
+	start_rand = MPI_Wtime(); 
   	//float *bdata_f;
   	bdata_f = (float *)malloc(qrows * p * sizeof(float));
 
-	if (rank == 0)
-	 	cout << "B1 data.rows() = " << data.rows() << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;     
- 	var_distribute_data(data_f, data.rows(), qrows, N, p, size_s, bdata_f, L, D, MPI_COMM_WORLD, comm_g );
+	//if (rank == 0)
+	 //	cout << "B1 data.rows() = " << data.rows() << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;     
+ 	var_distribute_data(data_f, qrows, qrows, N, p, size_s, bdata_f, L, D, MPI_COMM_WORLD, comm_g );
  
 	if (rank == 0) {
         	ofstream myfile2("data/bdata_f.dat");
@@ -205,8 +223,10 @@ int main(int argc, char** argv) {
                 	myfile2.close();
         	}
 
-  	}		
- 
+  	}
+
+	end_rand += MPI_Wtime() - start_rand;
+ 	start_Zmx = MPI_Wtime(); 
   	//float *Y;
 	int y_rows= bin_size_1D(rank_g, N-D, nprocs_g); 
   	Y = (float *)malloc(y_rows*p*sizeof(float)); 
@@ -243,9 +263,12 @@ int main(int argc, char** argv) {
                         myfile4.close();
                 }
 
-        }
- 
+        } 
+
   	free(Z_mx_e);    
+
+ 	end_Zmx += MPI_Wtime() - start_Zmx;
+	start_kron = MPI_Wtime(); 
 
  	/* do a distributed kronecker product on Z_mx with I(p,p) to get X*/
   	/* this implementation of the Kronecker product is not an actual product
@@ -262,6 +285,7 @@ int main(int argc, char** argv) {
 	//float *X; 
    	X = var_kron (Z_stacked, Z_mx.rows(), kron_rows, N, p, D, MPI_COMM_WORLD, comm_g);       
    	free(Z_stacked);
+	end_kron += MPI_Wtime() - start_kron; 
 
 	/*if (rank == 1) {
                 ofstream myfile5("data/X.dat");
@@ -305,6 +329,14 @@ int main(int argc, char** argv) {
 	free(X); 	
    }
 
+  if(rank==0) {
+	cout << "Model Selecion stats:\t" << endl;
+	cout << "\t-randomization time:\t" << end_rand << "(s)" << endl;
+	cout << "\t-Zmx matrix creation time:\t" << end_Zmx << "(s)" << endl; 
+	cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
+	cout << "\t-Lasso1 time:\t" << allred_1 << "(s)" << endl; 
+   }
+
   /* Create family of supports */ 
 
   float *sprt;
@@ -338,17 +370,21 @@ int main(int argc, char** argv) {
   MatrixXf Bgols_B(B2*nlamb, D*p*p);
 
   /* Model Estimation -- Union step */  
-
+  start_rand=0; end_rand=0; start_Zmx=0; end_Zmx=0; start_kron=0; end_kron=0;
+  double start_rand_test, end_rand_test, start_Zmx_test, end_Zmx_test, start_kron_test, end_kron_testi, end_stack; 
   for(int k=0; k<B2; k++) {
-
+	
+	start_rand = MPI_Wtime(); 
         //float *bdata_f;
         bdata_es = (float *)malloc(qrows * p * sizeof(float));
 	//if (rank == 0)
           //      cout << "B2 data.rows() = " << data.rows() << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;
-        var_distribute_data(data_f, data.rows(), qrows, N, p, size_s, bdata_es, L, D, MPI_COMM_WORLD, comm_g );
+        var_distribute_data(data_f, qrows, qrows, N, p, size_s, bdata_es, L, D, MPI_COMM_WORLD, comm_g );
 
+	end_rand += MPI_Wtime() - start_rand; 
         //Map<Matrix<float, Dynamic, Dynamic, RowMajor> >bdata(bdata_f, q_rows, p);
 
+	start_Zmx = MPI_Wtime(); 
         //float *Y; 
         //Y_train = (float *)malloc((N-D)*p*sizeof(float));
         int y_rows= bin_size_1D(rank_g, N-D, nprocs_g);
@@ -366,14 +402,17 @@ int main(int argc, char** argv) {
 
         var_generate_Z(bdata_es, qrows, z_rows, N, p, Z_mx_train, D, MPI_COMM_WORLD, comm_g);
         free(bdata_es);
-
+	end_Zmx += MPI_Wtime() - start_Zmx; 
 	//if (rank ==0)
 	//	cout << "Passed Var_generate" << endl; 
 
 	/* Generate Z_mx matrix for testing data*/
 
+	start_rand_test = MPI_Wtime(); 
 	bdata_ts = (float *)malloc(qrows * p * sizeof(float));
-	var_distribute_data(data_f, data.rows(), qrows, N, p, size_s, bdata_ts, L, D, MPI_COMM_WORLD, comm_g );
+	var_distribute_data(data_f, qrows, qrows, N, p, size_s, bdata_ts, L, D, MPI_COMM_WORLD, comm_g );
+	end_rand_test += MPI_Wtime() - start_rand_test;
+	start_Zmx_test = MPI_Wtime(); 
 	//Y_test = (float *)malloc((N-D)*p*sizeof(float));
 	Y_test = (float *)malloc(y_rows*p*sizeof(float));
 	var_vectorize_response(bdata_ts, qrows, y_rows, N, p, Y_test, L, D, MPI_COMM_WORLD, comm_g);
@@ -381,7 +420,10 @@ int main(int argc, char** argv) {
 	Z_mx_test = (float *)malloc(z_rows * p * sizeof(float));
 	var_generate_Z(bdata_ts, qrows, z_rows, N, p, Z_mx_test, D, MPI_COMM_WORLD, comm_g);
         free(bdata_ts);
- 
+ 	
+	end_Zmx_test += MPI_Wtime() - start_Zmx_test; 
+
+	double start_stack = MPI_Wtime(); 
         MatrixXf Z_mx_tr;
         Z_mx_tr = stack_Z(Z_mx_train, z_rows, p, D, rank);
         free(Z_mx_train);
@@ -389,6 +431,8 @@ int main(int argc, char** argv) {
 	Z_mx_tr = stack_Z(Z_mx_test, z_rows, p, D, rank);
 	free(Z_mx_test);
 
+	end_stack += MPI_Wtime() - start_stack; 
+	
         /* do a distributed kronecker product on Z_mx with I(p,p) to get X*/
         /* this implementation of the Kronecker product is not an actual product
         * This implementation is just a bookkeeping technique using MPI_Get 
@@ -401,6 +445,8 @@ int main(int argc, char** argv) {
 	Z_stacked_test = (float *)malloc(Z_mx_ts.rows() * Z_mx_ts.cols() * sizeof(float));
 	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(Z_stacked_test, Z_mx_ts.rows(), Z_mx_ts.cols()) = Z_mx_ts;
 
+	start_kron = MPI_Wtime();
+
         //int kron_rows = bin_size_1D(rank_g, (N-D)*p, nprocs_g);
 	int kron_rows = y_rows * p;
         //float *X; 
@@ -410,6 +456,7 @@ int main(int argc, char** argv) {
 	X_test = var_kron (Z_stacked_test, Z_mx_ts.rows(), kron_rows, N, p, D, MPI_COMM_WORLD, comm_g);
 	free(Z_stacked_test);
 
+	end_kron += MPI_Wtime() - start_kron; 
 
 	//float *my_B0;
         //MatrixXf B0; 
@@ -456,6 +503,19 @@ int main(int argc, char** argv) {
 	free(Y_test);
 	free(X_test); 
    }
+
+   if(rank==0) {
+        cout << "Model Estimation stats: " << endl;
+        cout << "\t-randomization time train:\t" << end_rand << "(s)" << endl;
+	cout << "\t-randomization time test:\t" << end_rand_test << "(s)" << endl;
+        cout << "\t-Zmx matrix creation time train:\t" << end_Zmx << "(s)" << endl;
+	cout << "\t-Zmx matrix creation time test:\t" << end_Zmx_test << "(s)" << endl;
+	cout << "\t-stack Z time:\t" << end_stack << "(s)" << endl;  
+        cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
+	cout << "\t-Lasso1 time:\t" << allred_2 << "(s)" << endl;
+   }
+
+
 
 
   VectorXf Bgd_r(D*p*p);
