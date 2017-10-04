@@ -47,9 +47,9 @@ MatrixXf stack_Z (float *mat_f, int rows, int cols, int D, int rank) {
 
      Map<Matrix<float, Dynamic, Dynamic, RowMajor> > mat(mat_f, rows, cols);
      
-     if (rank == 0) {
-	cout << "rows " << rows << "\tcols " << cols << "\tmat.rows " << mat.rows() << "\tmat.cols " << mat.cols() << endl;
-     }
+     //if (rank == 0) {
+     // cout << "rows " << rows << "\tcols " << cols << "\tmat.rows " << mat.rows() << "\tmat.cols " << mat.cols() << endl;
+     //}
 
   
      MatrixXf Out(mat.rows()-D, D*mat.cols());
@@ -89,7 +89,10 @@ int main(int argc, char** argv) {
         	MPI_Abort(MPI_COMM_WORLD, 1);
    	} else {
 		N = get_rows(INPUTFILE, dataset_simdata);
-      		p = get_cols(INPUTFILE,dataset_simdata);	
+      		p = get_cols(INPUTFILE,dataset_simdata);
+		
+		//cout << "N = " << N << "\t p = " << p << endl ;	
+	
       		L = atoi(argv[2]);
       		D = atoi(argv[3]); 
 		nlamb = atoi(argv[4]);
@@ -126,7 +129,7 @@ int main(int argc, char** argv) {
   MPI_Bcast(&B2, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&p, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  int ngroups = 1;  
+  int ngroups = 1; 
 
  /* create groups for bootstraps */
   int color = bin_coord_1D(rank, nprocs, ngroups);
@@ -142,6 +145,35 @@ int main(int argc, char** argv) {
    * is ready.
    */
 
+
+  /*Create root ranks for writing*/
+  MPI_Group world_group;
+  MPI_Comm_group (MPI_COMM_WORLD, &world_group);
+
+  int root[ngroups]; 
+
+  if (rank == 0) {
+        int ss=0;
+        for (i=0; i<ngroups; i++) {
+                root[i] = ss;
+                ss+=nprocs_nrnd;
+        }
+  }
+
+  MPI_Bcast(root, ngroups, MPI_INT, 0, MPI_COMM_WORLD);
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Group root_ngroups;
+  MPI_Group_incl(world_group, ngroups, root, &root_ngroups);
+
+  MPI_Comm comm_ROOT;
+  MPI_Comm_create_group(MPI_COMM_WORLD, root_ngroups, 1, &comm_ROOT);
+
+  int rank_roots;
+  if (MPI_COMM_NULL != comm_ROOT)
+        MPI_Comm_rank(comm_ROOT, &rank_roots);
+
+ 
   int qrows = bin_size_1D(rank_g, N, nprocs_g);
   //MatrixXf data(qrows, p);
 
@@ -180,15 +212,21 @@ int main(int argc, char** argv) {
   //data_f = (float *)malloc(data.rows() * data.cols()* sizeof(float));
   //Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(data_f, data.rows(), data.cols()) = data;  
 
-
+#ifdef DEBUG
   if (rank == 0) {
+	Map<Matrix<float, Dynamic, Dynamic, RowMajor> > temp(data_f, qrows, p);   
 	ofstream myfile1 ("data/data_f.dat");
         if (myfile1.is_open())
         {
-                myfile1 << data_f; 
+                myfile1 << temp; 
                 myfile1.close();
         }
+
+	MPI_Abort(MPI_COMM_WORLD, 2);
   }
+#endif
+
+  MPI_Barrier(MPI_COMM_WORLD);
 
   float *lamb0;
   lamb0 = logspace(-2, 1, nlamb);
@@ -213,7 +251,8 @@ int main(int argc, char** argv) {
 	//if (rank == 0)
 	 //	cout << "B1 data.rows() = " << data.rows() << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;     
  	var_distribute_data(data_f, qrows, qrows, N, p, size_s, bdata_f, L, D, MPI_COMM_WORLD, comm_g );
- 
+
+#ifdef DEBUG 
 	if (rank == 0) {
         	ofstream myfile2("data/bdata_f.dat");
 		Map<Matrix<float, Dynamic, Dynamic, RowMajor> >bdata(bdata_f, qrows, p); 
@@ -224,6 +263,7 @@ int main(int argc, char** argv) {
         	}
 
   	}
+#endif
 
 	end_rand += MPI_Wtime() - start_rand;
  	start_Zmx = MPI_Wtime(); 
@@ -231,7 +271,8 @@ int main(int argc, char** argv) {
 	int y_rows= bin_size_1D(rank_g, N-D, nprocs_g); 
   	Y = (float *)malloc(y_rows*p*sizeof(float)); 
   	var_vectorize_response(bdata_f, qrows, y_rows, N, p, Y, L, D, MPI_COMM_WORLD, comm_g); 
- 
+
+#ifdef DEBUG 
 	if (rank == 1) {
                 ofstream myfile3("data/Y.dat");
                 Map<VectorXf> Y_print(Y, y_rows*p);
@@ -243,7 +284,8 @@ int main(int argc, char** argv) {
         //MPI_Abort(MPI_COMM_WORLD, 2);
 
         }
- 
+
+#endif 
   	/* Generate Z_mx matrix */ 
 
   	int z_rows = bin_size_1D(rank_g, (N-D)*D, nprocs_g); 
@@ -255,6 +297,8 @@ int main(int argc, char** argv) {
   	MatrixXf Z_mx;
   	Z_mx = stack_Z(Z_mx_e, z_rows, p, D, rank); 
 
+#ifdef DEBUG
+
 	if (rank == 0) {
                 ofstream myfile4("data/Z_mx.dat"); 
                 if (myfile4.is_open())
@@ -264,6 +308,7 @@ int main(int argc, char** argv) {
                 }
 
         } 
+#endif
 
   	free(Z_mx_e);    
 
@@ -329,14 +374,6 @@ int main(int argc, char** argv) {
 	free(X); 	
    }
 
-  if(rank==0) {
-	cout << "Model Selecion stats:\t" << endl;
-	cout << "\t-randomization time:\t" << end_rand << "(s)" << endl;
-	cout << "\t-Zmx matrix creation time:\t" << end_Zmx << "(s)" << endl; 
-	cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
-	cout << "\t-Lasso1 time:\t" << allred_1 << "(s)" << endl; 
-   }
-
   /* Create family of supports */ 
 
   float *sprt;
@@ -345,22 +382,66 @@ int main(int argc, char** argv) {
 
   MPI_Barrier(MPI_COMM_WORLD); 
 
-                  if (rank == 0) {
-                        ofstream myfile7("data/B0.dat"); 
-                        if (myfile7.is_open())
-                        {
-                                myfile7 << B0;
-                                myfile7.close();
-                        }
-		//MPI_Abort(MPI_COMM_WORLD, 2);
+#ifdef DEBUG
 
-                }
+  if (rank == 0) {
+  	ofstream myfile7("data/B0.dat"); 
+        if (myfile7.is_open())
+        {
+        	myfile7 << B0;
+                myfile7.close();
+        }
+	//MPI_Abort(MPI_COMM_WORLD, 2);
+
+  }
+
+#endif
 
   if (rank == 0) 
         get_support (B0, sprt, nlamb, B1, D*p*p);
 
 
   MPI_Bcast(sprt, nlamb * D*p*p, MPI_FLOAT, 0, MPI_COMM_WORLD);
+
+  double start_savetime, end_savetime;
+
+  if (rank == 0)
+	start_savetime = MPI_Wtime(); 
+
+  if (MPI_COMM_NULL != comm_ROOT) {
+	float R2m[nlamb*B1];
+    	float *B_select;
+	B_select = (float *)malloc(B1*nlamb * D*p*p * sizeof(float));
+	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(B_select, B0.rows(), B0.cols()) = B0;   
+
+	float *sprt_w;
+	sprt_w  = (float *) malloc (sprt.rows() * sprt.data() * sizeof(float));
+	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(sprt_w, sprt.rows(), sprt.cols()) = sprt; 
+	
+	float  *lamb; 
+	lamb = (float *) malloc (lamb0.size() * sizeof(float)); 	 
+	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(lamb, lamb0.size()) = lamb0; 
+	
+	write_selections(OUTPUTFILE1, B_select, R2m, lamb, sprt_w, B1, nlamb, D*p*p, comm_ROOT);
+
+       	free(B_select);
+	free(sprt_w);
+	free(lamb);
+  }
+
+  if (rank == 0)
+	end_savetime = MPI_Wtime() - start_savetime; 
+
+  if(rank==0) {
+	cout << "Read time:\t" << end_read << endl;
+	cout << "Save time:\t" <<  end_savetime << endl;
+        cout << "Model Selecion stats:\t" << endl;
+        cout << "\t-randomization time:\t" << end_rand << "(s)" << endl;
+        cout << "\t-Zmx matrix creation time:\t" << end_Zmx << "(s)" << endl;
+        cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
+        cout << "\t-Lasso1 time:\t" << allred_1 << "(s)" << endl;
+   }
+
 
 
   float *bdata_es, *bdata_ts, *Y_train, *Y_test, *Z_mx_train, *Z_mx_test, *Z_stacked_train, *Z_stacked_test, *X_train, *X_test, *my_B;
