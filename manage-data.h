@@ -20,7 +20,8 @@ void get_array (int Arrlen, int Totalrows, MPI_Comm comm, int mpi_rank, float * 
 //		 float *B0, float *R2m0, float *lamb0, float *B, float *R2m, float *lambL, float *sprt, float *Bgd_m, float *R2_m, int rsd_size_, float *rsd, float *bic, MPI_Comm comm );  
 
 
-void write_output (char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, int rsd_size_, float *rsd, float *bic, MPI_Comm comm ); 
+//void write_output (char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, int rsd_size_, float *rsd, float *bic, MPI_Comm comm ); 
+void write_output(char OutFile[], int nrnd, int n, int nboot, int nMP, float *Bgd_m, float *R2_m,  MPI_Comm comm );  
 
 //void write_inter(char OutFile[], int nboot, int n, float *B0, float R20, float lambC, float *B, float R2m, float lambD, float *sprt, MPI_Comm comm ); 
 

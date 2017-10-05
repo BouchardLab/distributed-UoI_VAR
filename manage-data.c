@@ -527,7 +527,7 @@ void write_D(hid_t id, float data, hid_t plist, char name[]){
 
 
 
-void write_output(char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, int rsd_size_, float *rsd, float *bic, MPI_Comm comm ) {
+void write_output(char OutFile[], int nrnd, int n, int nboot, int nMP, float *Bgd_m, float *R2_m,  MPI_Comm comm ) {
 
      /*
      * HDF5 APIs definitions
@@ -582,11 +582,11 @@ void write_output(char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, in
 
    /* Write RSD */ 
 
-    dimsf[0] = nrnd*mpi_size;
-    dimsf[1] = rsd_size_;
+    dimsf[0] = nboot;
+    dimsf[1] = nMP;
     filespace = H5Screate_simple(2, dimsf, NULL);
 
-    dset_id = H5Dcreate(group_id, "rsd", H5T_NATIVE_FLOAT, filespace,
+    dset_id = H5Dcreate(group_id, "R2", H5T_NATIVE_FLOAT, filespace,
                         H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     H5Sclose(filespace);
 
@@ -600,11 +600,11 @@ void write_output(char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, in
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, offset, NULL, count, NULL);
 
     status = H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace,
-                      plist_id, rsd);
+                      plist_id, R2_m);
 
    /* Write R2 */ 
 
-    dims[0] = nrnd*mpi_size; 
+    /*dims[0] = nboot; 
 
     filespace = H5Screate_simple(1, dims, NULL);
     dset_id = H5Dcreate(group_id, "R2", H5T_NATIVE_FLOAT, filespace,
@@ -619,11 +619,11 @@ void write_output(char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, in
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, offsets, NULL, count, NULL);
 
     status = H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace,
-                      plist_id, R2_m);
+                      plist_id, R2_m);*/
    
     /*Write bic*/ 
 
-    filespace = H5Screate_simple(1, dims, NULL);
+    /*filespace = H5Screate_simple(1, dims, NULL);
     dset_id = H5Dcreate(group_id, "bic", H5T_NATIVE_FLOAT, filespace,
                         H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     H5Sclose(filespace); 
@@ -634,7 +634,7 @@ void write_output(char OutFile[], int nrnd, int n, float *Bgd_m, float *R2_m, in
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, offsets, NULL, count, NULL);
 
     status = H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace,
-                      plist_id, bic);
+                      plist_id, bic);*/
 
 
     H5Pclose(plist_id);
@@ -1334,7 +1334,7 @@ void write_selections(char OutFile[], float *B, float *R2m,  float *lambda, floa
    
     /* Write sprt */
 
-    dimsf[0] = nboot;
+    dimsf[0] = nMP;
     dimsf[1] = n;
     filespace = H5Screate_simple(2, dimsf, NULL);
 

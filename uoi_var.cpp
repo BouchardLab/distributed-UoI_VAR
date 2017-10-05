@@ -80,9 +80,11 @@ int main(int argc, char** argv) {
   char *dataset_simdata = "/data/sim_data";
   //char *dataset_y = "/data/y";
   char buf[20];
-  int L, N, p, D, nlamb, B1, B2, bgdopt=1; 
-  MatrixXf inputdata; 
+  int L, N, p, D, nlamb, B1, B2, bgdopt=1;
+  double start_time, end_time;  
+  //atrixXf inputdata; 
   if (rank == 0) {
+	start_time = MPI_Wtime(); 
 	if (argc != 9) {
 		printf("Usage: %s InputFile L D nlamb B1 B2 OutFile1 OutFile2\n", argv[0]);
         	fflush(stdout);
@@ -154,9 +156,9 @@ int main(int argc, char** argv) {
 
   if (rank == 0) {
         int ss=0;
-        for (i=0; i<ngroups; i++) {
+        for (int i=0; i<ngroups; i++) {
                 root[i] = ss;
-                ss+=nprocs_nrnd;
+                ss+=nprocs_g;
         }
   }
 
@@ -412,21 +414,11 @@ int main(int argc, char** argv) {
 	float R2m[nlamb*B1];
     	float *B_select;
 	B_select = (float *)malloc(B1*nlamb * D*p*p * sizeof(float));
-	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(B_select, B0.rows(), B0.cols()) = B0;   
-
-	float *sprt_w;
-	sprt_w  = (float *) malloc (sprt.rows() * sprt.data() * sizeof(float));
-	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(sprt_w, sprt.rows(), sprt.cols()) = sprt; 
+	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(B_select, B0.rows(), B0.cols()) = B0; 
 	
-	float  *lamb; 
-	lamb = (float *) malloc (lamb0.size() * sizeof(float)); 	 
-	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(lamb, lamb0.size()) = lamb0; 
-	
-	write_selections(OUTPUTFILE1, B_select, R2m, lamb, sprt_w, B1, nlamb, D*p*p, comm_ROOT);
+	write_selections(OUTPUTFILE1, B_select, R2m, lamb0, sprt, B1, nlamb, D*p*p, comm_ROOT);
 
        	free(B_select);
-	free(sprt_w);
-	free(lamb);
   }
 
   if (rank == 0)
@@ -585,20 +577,9 @@ int main(int argc, char** argv) {
 	free(X_test); 
    }
 
-   if(rank==0) {
-        cout << "Model Estimation stats: " << endl;
-        cout << "\t-randomization time train:\t" << end_rand << "(s)" << endl;
-	cout << "\t-randomization time test:\t" << end_rand_test << "(s)" << endl;
-        cout << "\t-Zmx matrix creation time train:\t" << end_Zmx << "(s)" << endl;
-	cout << "\t-Zmx matrix creation time test:\t" << end_Zmx_test << "(s)" << endl;
-	cout << "\t-stack Z time:\t" << end_stack << "(s)" << endl;  
-        cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
-	cout << "\t-Lasso1 time:\t" << allred_2 << "(s)" << endl;
-   }
 
-
-
-
+  double est_time, est_end; 
+  est_time = MPI_Wtime(); 
   VectorXf Bgd_r(D*p*p);
   MatrixXf btmp(B2, D*p*p);
 
@@ -619,13 +600,47 @@ int main(int argc, char** argv) {
 	Bgd_r = median(btmp);
   }
 
+  est_end = MPI_Wtime() - est_time ; 
+  saveTime=0;
+
+  if (rank == 0) saveTime = MPI_Wtime();
+ 
+  if (MPI_COMM_NULL != comm_ROOT) {
+	
+	float *R2;
+	R2 = (float *) malloc (Bgols_R2m.rows() * Bgols_R2m.cols() * sizeof(float));
+	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(R2, Bgols_R2m.rows(), Bgols_R2m.cols()) = Bgols_R2m;
+
+	float *Bgd; 
+	Bgd = (float *) malloc (D*p*p * sizeof(float));
+ 	Map<VectorXf>(Bgd, Bgd_r.size()) = Bgd_r;
+	 
+        write_output (OUTPUTFILE, ngroups, D*p*p, B2, nlamb, Bgd, R2, comm_ROOT);
+	
+	free(R2);
+	free(Bgd);
+  }
+  if(rank==0) {
+	double end_saveTime = MPI_Wtime() - saveTime; 
+
+        cout << "Model Estimation stats: " << endl;
+        cout << "\t-randomization time train:\t" << end_rand << "(s)" << endl;
+        cout << "\t-randomization time test:\t" << end_rand_test << "(s)" << endl;
+        cout << "\t-Zmx matrix creation time train:\t" << end_Zmx << "(s)" << endl;
+        cout << "\t-Zmx matrix creation time test:\t" << end_Zmx_test << "(s)" << endl;
+        cout << "\t-stack Z time:\t" << end_stack << "(s)" << endl;
+        cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
+        cout << "\t-Lasso2 time:\t" << allred_2 << "(s)" << endl;
+	cout << "\t-Final Est time:\t" << est_end << "(s)" << endl; 
+	cout << "\t-Save time:\t" << end_saveTime << "(s)" << endl; 
+   }
+
 
  /* Write output to hdf5 file: use module from manage-data.c */ 
 
   if (rank == 0) {
-
-	 printf("\nUnion of Intersections Vector Auto-Regressive model (UOI-VAR) analysis completed");
-	 /* print timing */ 
+	end_time = MPI_Wtime() - start_time; 
+	 cout << "\nUnion of Intersections Vector Auto-Regressive model (UOI-VAR) analysis completed in :\t" << end_time << endl ; 
   }
 
   MPI_Finalize();
