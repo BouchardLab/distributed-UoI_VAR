@@ -20,6 +20,21 @@ void shuffle_block(int *array, size_t n) {
   }
 }
 
+void print_array (int *vec, int rows, char name[]) {
+
+ int leni;
+ FILE *fp;
+ fp = fopen(name, "w");
+
+ for (leni =0; leni < rows; leni++) {
+      fprintf(fp, "%d\n", *(vec + leni));
+   }
+
+fclose (fp);
+
+}
+
+
 void var_distribute_data (float *d, int local, int q_rows, int n_rows, int n_cols, int k_rows, float *B_out, int L, int D, MPI_Comm comm_world, MPI_Comm comm_group) {
 
   int i, j;
@@ -41,8 +56,8 @@ void var_distribute_data (float *d, int local, int q_rows, int n_rows, int n_col
   int *sample;
   if (rank_group == 0) {
     int row_ids[n_rows-L+1];
-    for (i=0;i<=(n_rows-L+1);i++) row_ids[i] = i;
-    shuffle_block(row_ids, k_rows/L); 
+    for (i=0;i<(n_rows-L+1);i++) row_ids[i] = i;
+    shuffle_block(row_ids, (n_rows-L+1)); //shuffle row_ids 
 
     int s = n_rows/L;
     int b = n_rows % L; 
@@ -65,7 +80,9 @@ void var_distribute_data (float *d, int local, int q_rows, int n_rows, int n_col
 	}
 		
 
-    }		 
+    }	
+   print_array(sample, n_rows, "./data/sample_last.dat");
+		 
   } else {
     sample = NULL;
   }
@@ -91,7 +108,6 @@ void var_distribute_data (float *d, int local, int q_rows, int n_rows, int n_col
   
 
 #endif
- 
 
   double t = MPI_Wtime();
   MPI_Win_fence(MPI_MODE_NOPUT | MPI_MODE_NOPRECEDE, win);
@@ -102,10 +118,18 @@ void var_distribute_data (float *d, int local, int q_rows, int n_rows, int n_col
 #else
     int trow = s_rows[i];
 #endif
-    int target_rank = bin_coord_1D(trow, n_rows, nprocs_world);
-    //if (rank_group == 0)
-    //	printf("i = %d\t  qrows= %d\t trow =%d\t target_rank = %d\n", i, q_rows, trow, target_rank);
-    int target_disp = bin_index_1D(trow, n_rows, nprocs_world) * n_cols;
+
+    //if (trow<0 || trow>n_rows)	
+//	print_array(s_rows, q_rows, "./data/s_rows_dis.dat");
+
+    int target_rank = bin_coord_1D(trow, n_rows, size_group); 
+
+    int target_disp = bin_index_1D(trow, n_rows, size_group) * n_cols;
+
+  //  if (target_disp < 0)
+    //    printf("var_dis i: %d\t trow: %d\t n_rows: %d\t size_group: %d\t n_cols: %d\t target_disp: %d\t rank: %d\n", i, trow, n_rows-D, size_group, n_cols, target_disp, rank_group);
+ 
+
     MPI_Get( &B_out[i*n_cols], n_cols, MPI_FLOAT, target_rank, target_disp, n_cols, MPI_FLOAT, win);
   }
 
@@ -175,10 +199,16 @@ void var_vectorize_response(float *d, int local, int yrows, int n_rows, int n_co
 #ifdef SIMPLESAMPLE
     int trow = (int) random_at_mostL( (long) n_rows);
 #else
-    int trow = s_rows[i];
+    int trow = s_rows[i]-1; //-1 because now bdata is indexed from 0:N-1 and not from 1:N-2
 #endif
-    int target_rank = bin_coord_1D(trow, n_rows, nprocs_world);
-    int target_disp = bin_index_1D(trow, n_rows-D, nprocs_world) * n_cols;
+    int target_rank = bin_coord_1D(trow, n_rows, size_group);
+ 
+    int target_disp = bin_index_1D(trow, n_rows-D, size_group) * n_cols;
+
+   // if (target_disp < 0)
+     //   printf("var_vec i: %d\t trow: %d\t n_rows: %d\t size_group: %d\t n_cols: %d\t target_disp: %d\t rank: %d\n", i, trow, n_rows-D, size_group, n_cols, target_disp, rank_group);
+
+
     MPI_Get( &B_out[i*n_cols], n_cols, MPI_FLOAT, target_rank, target_disp, n_cols, MPI_FLOAT, win);
   }
 
@@ -256,9 +286,12 @@ void var_generate_Z(float *d, int local, int yrows, int n_rows, int n_cols, floa
 #else
     int trow = s_rows[i]-1; //-1 because now bdata is indexed from 0:N-1 and not from 1:N-2
 #endif
-    int target_rank = bin_coord_1D(trow, (n_rows-D), nprocs_world); 
+    int target_rank = bin_coord_1D(trow, (n_rows-D), size_group);  
+    int target_disp = bin_index_1D(trow, (n_rows-D)*D, size_group) * n_cols;
+   
+    //if (target_disp < 0)
+      //  printf("var_gen i: %d\t trow: %d\t n_rows: %d\t size_group: %d\t n_cols: %d\t target_disp: %d\t rank: %d\n", i, trow, n_rows-D, size_group, n_cols, target_disp, rank_group);
 
-    int target_disp = bin_index_1D(trow, (n_rows-D)*D, nprocs_world) * n_cols;
     MPI_Get( &B_out[i*n_cols], n_cols, MPI_FLOAT, target_rank, target_disp, n_cols, MPI_FLOAT, win);
   }
 

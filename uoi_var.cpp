@@ -22,6 +22,8 @@
 using namespace Eigen;
 using namespace std; 
 
+//#define DEBUG 0
+
 float not_NaN (float x) {if (!isnan(x)) return x; else return 0;}
 
 
@@ -82,7 +84,7 @@ int main(int argc, char** argv) {
   char buf[20];
   int L, N, p, D, nlamb, B1, B2, bgdopt=1;
   double start_time, end_time;  
-  //atrixXf inputdata; 
+  //MatrixXf inputdata; 
   if (rank == 0) {
 	start_time = MPI_Wtime(); 
 	if (argc != 9) {
@@ -224,7 +226,7 @@ int main(int argc, char** argv) {
                 myfile1.close();
         }
 
-	MPI_Abort(MPI_COMM_WORLD, 2);
+	//MPI_Abort(MPI_COMM_WORLD, 2);
   }
 #endif
 
@@ -251,7 +253,8 @@ int main(int argc, char** argv) {
   	bdata_f = (float *)malloc(qrows * p * sizeof(float));
 
 	//if (rank == 0)
-	 //	cout << "B1 data.rows() = " << data.rows() << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;     
+	//	cout  << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;     
+
  	var_distribute_data(data_f, qrows, qrows, N, p, size_s, bdata_f, L, D, MPI_COMM_WORLD, comm_g );
 
 #ifdef DEBUG 
@@ -283,7 +286,7 @@ int main(int argc, char** argv) {
                         myfile3 << Y_print;
                         myfile3.close();
                 }
-        //MPI_Abort(MPI_COMM_WORLD, 2);
+       // MPI_Abort(MPI_COMM_WORLD, 2);
 
         }
 
@@ -308,6 +311,8 @@ int main(int argc, char** argv) {
                         myfile4 << Z_mx;
                         myfile4.close();
                 }
+
+	//MPI_Abort(MPI_COMM_WORLD, 2);
 
         } 
 #endif
@@ -350,13 +355,14 @@ int main(int argc, char** argv) {
 	//MatrixXf B0; 
 	if (rank_g == 0) B0 = MatrixXf::Zero(B1*nlamb, D*p*p);  
   	for (int nMP = 0; nMP < nlamb; nMP++) {
-   		double my_lamb = lamb0[nMP];  
+   		double my_lamb = lamb0[nMP]; 
 		my_B0 = lasso(X, kron_rows, D*p*p , Y, my_lamb, comm_g, &allred_1);
+		allred_2 += allred_1;
  		if (rank_g == 0) {
 		   Map<VectorXf> my_B(my_B0, D*p*p);
 		   B0.row((k*nlamb)+nMP) = my_B;
 		}
-
+	
 
 	 	/*if (rank == 0 && nMP == nlamb/2) {
                 	ofstream myfile6("data/my_B0.dat");
@@ -386,7 +392,7 @@ int main(int argc, char** argv) {
 
 #ifdef DEBUG
 
-  if (rank == 0) {
+  if (rank_g == 0) {
   	ofstream myfile7("data/B0.dat"); 
         if (myfile7.is_open())
         {
@@ -399,7 +405,7 @@ int main(int argc, char** argv) {
 
 #endif
 
-  if (rank == 0) 
+  if (rank_g == 0) 
         get_support (B0, sprt, nlamb, B1, D*p*p);
 
 
@@ -431,7 +437,7 @@ int main(int argc, char** argv) {
         cout << "\t-randomization time:\t" << end_rand << "(s)" << endl;
         cout << "\t-Zmx matrix creation time:\t" << end_Zmx << "(s)" << endl;
         cout << "\t-Distr. Kronecker Product time:\t"  << end_kron << "(s)" << endl;
-        cout << "\t-Lasso1 time:\t" << allred_1 << "(s)" << endl;
+        cout << "\t-Lasso1 time:\t" << allred_2 << "(s)" << endl;
    }
 
 
@@ -442,8 +448,10 @@ int main(int argc, char** argv) {
   MatrixXf Bgols_R2m(B2,nlamb);
   MatrixXf Bgols_B(B2*nlamb, D*p*p);
 
+   MPI_Barrier(MPI_COMM_WORLD);
+
   /* Model Estimation -- Union step */  
-  start_rand=0; end_rand=0; start_Zmx=0; end_Zmx=0; start_kron=0; end_kron=0;
+  start_rand=0; end_rand=0; start_Zmx=0; end_Zmx=0; start_kron=0; end_kron=0; allred_2=0; 
   double start_rand_test, end_rand_test, start_Zmx_test, end_Zmx_test, start_kron_test, end_kron_testi, end_stack; 
   for(int k=0; k<B2; k++) {
 	
@@ -452,6 +460,14 @@ int main(int argc, char** argv) {
         bdata_es = (float *)malloc(qrows * p * sizeof(float));
 	//if (rank == 0)
           //      cout << "B2 data.rows() = " << data.rows() << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;
+#ifdef DEBUG
+	if (rank == 0)
+		cout << "In B2 estimation" << endl;
+
+	 if (rank == 0)
+                cout  << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t size_s = " << size_s <<  endl;
+#endif
+
         var_distribute_data(data_f, qrows, qrows, N, p, size_s, bdata_es, L, D, MPI_COMM_WORLD, comm_g );
 
 	end_rand += MPI_Wtime() - start_rand; 
@@ -462,22 +478,37 @@ int main(int argc, char** argv) {
         //Y_train = (float *)malloc((N-D)*p*sizeof(float));
         int y_rows= bin_size_1D(rank_g, N-D, nprocs_g);
         Y_train = (float *)malloc(y_rows*p*sizeof(float));
+
+#ifdef DEBUG
+	if (rank == 0)
+		cout << "before var_vectorize" << endl;
+	if (rank == 0)
+                cout  << " q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t y_rows = " << y_rows  <<  endl;
+#endif
+
         var_vectorize_response(bdata_es, qrows, y_rows, N, p, Y_train, L, D, MPI_COMM_WORLD, comm_g);
 
-	//if (rank == 0)
-	//	cout << "Passed var_vectorize" << endl ; 
-
+#ifdef DEBUG
+	if (rank == 0)
+                cout << "Completed var_vectorize" << endl;
+#endif
         /* Generate Z_mx matrix for training data*/
 
         int z_rows = bin_size_1D(rank_g, (N-D)*D, nprocs_g);
         //float *Z_mx_e;
         Z_mx_train = (float *)malloc(z_rows * p * sizeof(float));
 
+#ifdef DEBUG
+	if (rank == 0)
+                cout  << " genZ q_rows = " << qrows << "\t p = " << p << "\t N = " << N << "\t z_rows = " << z_rows  <<  endl;
+#endif
         var_generate_Z(bdata_es, qrows, z_rows, N, p, Z_mx_train, D, MPI_COMM_WORLD, comm_g);
         free(bdata_es);
 	end_Zmx += MPI_Wtime() - start_Zmx; 
-	//if (rank ==0)
-	//	cout << "Passed Var_generate" << endl; 
+#ifdef DEBUG
+	if (rank ==0)
+		cout << "Passed Var_generate" << endl; 
+#endif
 
 	/* Generate Z_mx matrix for testing data*/
 
@@ -488,7 +519,17 @@ int main(int argc, char** argv) {
 	start_Zmx_test = MPI_Wtime(); 
 	//Y_test = (float *)malloc((N-D)*p*sizeof(float));
 	Y_test = (float *)malloc(y_rows*p*sizeof(float));
+
+#ifdef DEBUG
+	if (rank == 0)
+                cout << "Passed var_dis in estimation" << endl;
+#endif
 	var_vectorize_response(bdata_ts, qrows, y_rows, N, p, Y_test, L, D, MPI_COMM_WORLD, comm_g);
+
+#ifdef DEBUG
+	if (rank ==0)
+                cout << "Passed vectorize response" << endl;
+#endif
 
 	Z_mx_test = (float *)malloc(z_rows * p * sizeof(float));
 	var_generate_Z(bdata_ts, qrows, z_rows, N, p, Z_mx_test, D, MPI_COMM_WORLD, comm_g);
@@ -496,12 +537,17 @@ int main(int argc, char** argv) {
  	
 	end_Zmx_test += MPI_Wtime() - start_Zmx_test; 
 
+#ifdef DEBUG
+	if (rank == 0)
+                cout << "Passed var_generate_Z" << endl;
+#endif
+
 	double start_stack = MPI_Wtime(); 
         MatrixXf Z_mx_tr;
         Z_mx_tr = stack_Z(Z_mx_train, z_rows, p, D, rank);
         free(Z_mx_train);
 	MatrixXf Z_mx_ts;	
-	Z_mx_tr = stack_Z(Z_mx_test, z_rows, p, D, rank);
+	Z_mx_ts = stack_Z(Z_mx_test, z_rows, p, D, rank);
 	free(Z_mx_test);
 
 	end_stack += MPI_Wtime() - start_stack; 
@@ -515,29 +561,50 @@ int main(int argc, char** argv) {
         //float *Z_stacked;
         Z_stacked_train = (float *)malloc(Z_mx_tr.rows() * Z_mx_tr.cols() * sizeof(float));
         Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(Z_stacked_train, Z_mx_tr.rows(), Z_mx_tr.cols()) = Z_mx_tr;
-	Z_stacked_test = (float *)malloc(Z_mx_ts.rows() * Z_mx_ts.cols() * sizeof(float));
-	Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(Z_stacked_test, Z_mx_ts.rows(), Z_mx_ts.cols()) = Z_mx_ts;
 
 	start_kron = MPI_Wtime();
 
         //int kron_rows = bin_size_1D(rank_g, (N-D)*p, nprocs_g);
 	int kron_rows = y_rows * p;
         //float *X; 
+#ifdef DEBUG
+	if (rank == 0) {
+                cout << "befor train kron" << endl;
+		cout << "kron_rows: " << kron_rows << endl;
+		cout << "Z_mx_tr.rows(): " << Z_mx_tr.rows() << endl; 
+	}
+#endif
+
         X_train = var_kron (Z_stacked_train, Z_mx_tr.rows(), kron_rows, N, p, D, MPI_COMM_WORLD, comm_g);
         free(Z_stacked_train);
+
+
+	MPI_Barrier(MPI_COMM_WORLD);
+
+
+	Z_stacked_test = (float *)malloc(Z_mx_ts.rows() * Z_mx_ts.cols() * sizeof(float));
+        Map<Matrix<float, Dynamic, Dynamic, RowMajor> >(Z_stacked_test, Z_mx_ts.rows(), Z_mx_ts.cols()) = Z_mx_ts;
+
+#ifdef DEBUG
+	cout << "before test kron" << "kron_rows: " << kron_rows <<  "Z_mx_ts.rows(): " << Z_mx_ts.rows() <<  "rank: " << rank <<  endl;
+#endif
 
 	X_test = var_kron (Z_stacked_test, Z_mx_ts.rows(), kron_rows, N, p, D, MPI_COMM_WORLD, comm_g);
 	free(Z_stacked_test);
 
 	end_kron += MPI_Wtime() - start_kron; 
 
+#ifdef DEBUG
+	if (rank == 0)
+                cout << "finished both kron" << endl;
+#endif
 	//float *my_B0;
         //MatrixXf B0; 
 	VectorXi sprt_ids, arange, zdids;
         //if (rank_g == 0) B0 = MatrixXf::Zero(B1*nlamb, D*p*p);
         for (int nMP = 0; nMP < nlamb; nMP++) {
     
-                my_B = lasso(X_train, kron_rows, D*p*p , Y_train, 0.0, comm_g, &allred_2);
+                my_B = lasso(X_train, kron_rows, D*p*p , Y_train, 0.0, comm_g, &allred_1);
 
 		sprt_ids = sprt_d.row(nMP).unaryExpr(ptr_fun(not_NaN)).cast<int>();
 		Map<VectorXf> rgstrct(my_B, D*p*p);
@@ -568,6 +635,8 @@ int main(int argc, char** argv) {
                         Bgols_R2m(k,nMP) = r*r;
                         Bgols_B.row((k*nlamb)+nMP) = my_Bgols_B;
                 }
+
+		allred_2 += allred_1; 
         }
 
         /* free memory for the current bootstrap */
